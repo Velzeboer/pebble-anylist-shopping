@@ -291,7 +291,17 @@ static int16_t menu_header_height(MenuLayer *ml, uint16_t section, void *ctx) {
 
 static void menu_draw_header(GContext *ctx, const Layer *cell_layer, uint16_t section, void *context) {
   if (section == s_sec_total) {
-    menu_cell_basic_header_draw(ctx, cell_layer, "Actions");
+    // Separator before the Delete button: a dashed line instead of a label.
+    GRect b = layer_get_bounds(cell_layer);
+    int16_t y = b.size.h / 2;
+    int16_t dash = 6, gap = 4, x0 = 4, x_end = b.size.w - 4;
+    graphics_context_set_stroke_color(ctx, PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack));
+    graphics_context_set_stroke_width(ctx, 2);
+    for (int16_t x = x0; x < x_end; x += dash + gap) {
+      int16_t x2 = (x + dash > x_end) ? x_end : x + dash;
+      graphics_draw_line(ctx, GPoint(x, y), GPoint(x2, y));
+    }
+    graphics_context_set_stroke_width(ctx, 1); // reset so item strikethroughs stay 1px
   } else if (section < s_sec_total) {
     menu_cell_basic_header_draw(ctx, cell_layer, s_sec_name[section]);
   }

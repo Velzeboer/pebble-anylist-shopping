@@ -25,9 +25,14 @@ static Window *s_window;
 static MenuLayer *s_menu_layer;
 static TextLayer *s_status_layer;
 
-static ShopItem *s_items = NULL;
-static int s_item_count = 0;   // items actually stored
-static int s_expected = 0;     // items announced by LIST_START
+static ShopItem *s_items = NULL;     // currently displayed list
+static int s_item_count = 0;         // items actually stored
+
+// Incoming list is streamed into a separate buffer and swapped in at LIST_END,
+// so the current list stays on screen during a refresh (no blanking on toggle).
+static ShopItem *s_build = NULL;
+static int s_build_expected = 0;
+static int s_build_count = 0;
 
 static char s_sec_name[MAX_SECTIONS][CAT_LEN];
 static uint16_t s_sec_start[MAX_SECTIONS];
@@ -82,12 +87,11 @@ static MenuIndex item_to_menu_index(int g) {
 }
 
 static void free_items(void) {
-  if (s_items) {
-    free(s_items);
-    s_items = NULL;
-  }
+  if (s_items) { free(s_items); s_items = NULL; }
+  if (s_build) { free(s_build); s_build = NULL; }
   s_item_count = 0;
-  s_expected = 0;
+  s_build_expected = 0;
+  s_build_count = 0;
   s_sec_total = 0;
 }
 
@@ -382,7 +386,7 @@ static void menu_select(MenuLayer *ml, MenuIndex *cell_index, void *context) {
   int idx = s_sec_start[cell_index->section] + cell_index->row;
   if (idx < 0 || idx >= s_item_count) return;
   int new_state = s_items[idx].checked ? 0 : 1;
-  send_toggle(idx, new_state); // optimistic update happens on CMD_TOGGLE_OK
+  send_toggle(idx, new_state); // phone writes to AnyList, then sends a refreshed list
 }
 
 static void menu_select_long(MenuLayer *ml, MenuIndex *cell_index, void *context) {
@@ -407,27 +411,28 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
 
   switch (cmd) {
     case CMD_LIST_START: {
-      stop_marquee();
-      free_items();
+      // Stream into s_build; keep the current list on screen meanwhile.
+      if (s_build) { free(s_build); s_build = NULL; }
       Tuple *count_t = dict_find(iter, MESSAGE_KEY_count);
       Tuple *list_t = dict_find(iter, MESSAGE_KEY_list);
-      s_expected = count_t ? count_t->value->int32 : 0;
-      if (s_expected > MAX_ITEMS) s_expected = MAX_ITEMS;
+      s_build_expected = count_t ? count_t->value->int32 : 0;
+      if (s_build_expected > MAX_ITEMS) s_build_expected = MAX_ITEMS;
+      s_build_count = 0;
       if (list_t) {
         strncpy(s_title, list_t->value->cstring, CAT_LEN - 1);
         s_title[CAT_LEN - 1] = '\0';
       }
-      s_ready = false;
-      if (s_expected > 0) {
-        s_items = (ShopItem *)malloc(sizeof(ShopItem) * s_expected);
-        if (!s_items) {
+      if (s_build_expected > 0) {
+        s_build = (ShopItem *)malloc(sizeof(ShopItem) * s_build_expected);
+        if (!s_build) {
           set_status("Out of memory");
-          s_expected = 0;
+          s_build_expected = 0;
           return;
         }
-        memset(s_items, 0, sizeof(ShopItem) * s_expected);
+        memset(s_build, 0, sizeof(ShopItem) * s_build_expected);
       }
-      set_status("Loading...");
+      // Only blank to "Loading..." on the very first load (nothing to show yet).
+      if (!s_ready || s_item_count == 0) set_status("Loading...");
       break;
     }
 
@@ -436,24 +441,34 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
       Tuple *name_t = dict_find(iter, MESSAGE_KEY_name);
       Tuple *cat_t = dict_find(iter, MESSAGE_KEY_cat);
       Tuple *chk_t = dict_find(iter, MESSAGE_KEY_chk);
-      if (!idx_t || !s_items) return;
+      if (!idx_t || !s_build) return;
       int idx = idx_t->value->int32;
-      if (idx < 0 || idx >= s_expected) return;
+      if (idx < 0 || idx >= s_build_expected) return;
       if (name_t) {
-        strncpy(s_items[idx].name, name_t->value->cstring, NAME_LEN - 1);
-        s_items[idx].name[NAME_LEN - 1] = '\0';
+        strncpy(s_build[idx].name, name_t->value->cstring, NAME_LEN - 1);
+        s_build[idx].name[NAME_LEN - 1] = '\0';
       }
       if (cat_t) {
-        strncpy(s_items[idx].cat, cat_t->value->cstring, CAT_LEN - 1);
-        s_items[idx].cat[CAT_LEN - 1] = '\0';
+        strncpy(s_build[idx].cat, cat_t->value->cstring, CAT_LEN - 1);
+        s_build[idx].cat[CAT_LEN - 1] = '\0';
       }
-      s_items[idx].checked = (chk_t && chk_t->value->int32) ? 1 : 0;
-      if (idx + 1 > s_item_count) s_item_count = idx + 1;
+      s_build[idx].checked = (chk_t && chk_t->value->int32) ? 1 : 0;
+      if (idx + 1 > s_build_count) s_build_count = idx + 1;
       break;
     }
 
     case CMD_LIST_END: {
+      // Swap the freshly received list in.
+      stop_marquee();
+      if (s_items) free(s_items);
+      s_items = s_build;
+      s_item_count = s_build_count;
+      s_build = NULL;
+      s_build_expected = 0;
+      s_build_count = 0;
+
       if (s_item_count == 0) {
+        s_sec_total = 0;
         set_status("List is empty");
         s_ready = true;
         break;
@@ -462,35 +477,23 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
       s_ready = true;
       show_menu();
       menu_layer_reload_data(s_menu_layer);
-      // Select the first item WITHOUT aligning it to the top, so the first
-      // category header stays visible at the top of the screen.
-      menu_layer_set_selected_index(s_menu_layer, (MenuIndex){0, 0}, MenuRowAlignNone, false);
-      break;
-    }
 
-    case CMD_TOGGLE_OK: {
-      Tuple *idx_t = dict_find(iter, MESSAGE_KEY_idx);
-      Tuple *chk_t = dict_find(iter, MESSAGE_KEY_chk);
-      if (idx_t && s_items) {
-        int idx = idx_t->value->int32;
-        if (idx >= 0 && idx < s_item_count) {
-          s_items[idx].checked = (chk_t && chk_t->value->int32) ? 1 : 0;
-          menu_layer_reload_data(s_menu_layer);
-          // After crossing an item off, move focus to the next UN-checked item.
-          if (s_items[idx].checked) {
-            int next = -1;
-            for (int g = idx + 1; g < s_item_count; g++) {
-              if (!s_items[g].checked) { next = g; break; }
-            }
-            if (next >= 0) {
-              menu_layer_set_selected_index(s_menu_layer, item_to_menu_index(next), MenuRowAlignNone, true);
-            } else if (has_actions()) {
-              // No unchecked items left below: focus the Delete checked items button.
-              MenuIndex mi = { .section = (uint16_t)s_sec_total, .row = 0 };
-              menu_layer_set_selected_index(s_menu_layer, mi, MenuRowAlignNone, true);
-            }
-          }
+      // Optional focus target: >=0 select that item, -1 select Delete button,
+      // absent = top (manual refresh / first load).
+      Tuple *focus_t = dict_find(iter, MESSAGE_KEY_idx);
+      if (focus_t) {
+        int focus = focus_t->value->int32;
+        if (focus == -1 && has_actions()) {
+          MenuIndex mi = { .section = (uint16_t)s_sec_total, .row = 0 };
+          menu_layer_set_selected_index(s_menu_layer, mi, MenuRowAlignCenter, false);
+        } else if (focus >= 0 && focus < s_item_count) {
+          menu_layer_set_selected_index(s_menu_layer, item_to_menu_index(focus), MenuRowAlignCenter, false);
+        } else {
+          menu_layer_set_selected_index(s_menu_layer, (MenuIndex){0, 0}, MenuRowAlignNone, false);
         }
+      } else {
+        // First item, not top-aligned, so the first category header stays visible.
+        menu_layer_set_selected_index(s_menu_layer, (MenuIndex){0, 0}, MenuRowAlignNone, false);
       }
       break;
     }

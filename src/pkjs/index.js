@@ -56,8 +56,12 @@ function pump() {
 
 function sendError(text) { enqueue({ cmd: CMD_ERROR, msg: truncate(text, 60) }); }
 
-function flattenAndSend(data) {
+var listTitle = 'Shopping';
+
+// Build the flat `items` array from the categorized data (no sending).
+function flattenItems(data) {
   items = [];
+  listTitle = data.list || 'Shopping';
   var categories = data.categories || [];
   for (var c = 0; c < categories.length; c++) {
     var catName = categories[c].name || 'Other';
@@ -69,11 +73,28 @@ function flattenAndSend(data) {
       items.push({ id: it.id, name: truncate(label, MAX_NAME), cat: truncate(catName, MAX_CAT), checked: it.checked ? 1 : 0 });
     }
   }
-  enqueue({ cmd: CMD_LIST_START, count: items.length, list: truncate(data.list || 'Shopping', MAX_CAT) });
+}
+
+// Send the current `items` to the watch. `focus` (optional) is the global item
+// index to select; -1 = the Delete button; omitted = default (top).
+function sendList(focus) {
+  enqueue({ cmd: CMD_LIST_START, count: items.length, list: truncate(listTitle, MAX_CAT) });
   for (var k = 0; k < items.length; k++) {
     enqueue({ cmd: CMD_ITEM, idx: k, name: items[k].name, cat: items[k].cat, chk: items[k].checked });
   }
-  enqueue({ cmd: CMD_LIST_END });
+  var end = { cmd: CMD_LIST_END };
+  if (typeof focus === 'number') end.idx = focus;
+  enqueue(end);
+}
+
+// Where the highlight should land after a toggle's refresh.
+function computeFocus(wasChecked, toggledId) {
+  var pos = -1;
+  for (var i = 0; i < items.length; i++) { if (items[i].id === toggledId) { pos = i; break; } }
+  if (pos < 0) return undefined;            // not found -> default top
+  if (!wasChecked) return pos;              // unchecked -> stay on it
+  for (var j = pos + 1; j < items.length; j++) { if (!items[j].checked) return j; } // next unchecked
+  return -1;                                // none left -> Delete button
 }
 
 function ensureClient() {
@@ -89,7 +110,8 @@ function loadAndSend() {
   if (!c) { sendError('Open app settings to add login'); return; }
   c.getCategorizedList(s.anylist_list || '', true, function (err, data) {
     if (err) { sendError(err); return; }
-    flattenAndSend(data);
+    flattenItems(data);
+    sendList(); // default focus (top)
   });
 }
 
@@ -97,11 +119,16 @@ function toggle(idx, checked) {
   if (idx < 0 || idx >= items.length) return;
   var c = ensureClient();
   if (!c) { sendError('Open app settings to add login'); return; }
-  var item = items[idx];
-  c.checkItem(item.id, checked, function (err) {
+  var s = getSettings();
+  var toggledId = items[idx].id;
+  c.checkItem(toggledId, checked, function (err) {
     if (err) { sendError(err); return; }
-    item.checked = checked ? 1 : 0;
-    enqueue({ cmd: CMD_TOGGLE_OK, idx: idx, chk: item.checked });
+    // Re-fetch the list from AnyList, then send it with the right focus.
+    c.getCategorizedList(s.anylist_list || '', true, function (err2, data) {
+      if (err2) { sendError(err2); return; }
+      flattenItems(data);
+      sendList(computeFocus(checked, toggledId));
+    });
   });
 }
 

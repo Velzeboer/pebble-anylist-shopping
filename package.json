@@ -1,7 +1,7 @@
 {
   "name": "anylist-shopping",
   "author": "Marshal",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "keywords": ["pebble-app"],
   "private": true,
   "dependencies": {
@@ -12,7 +12,7 @@
     "uuid": "36df6cff-5257-4168-8517-741254f3e9b4",
     "sdkVersion": "3",
     "enableMultiJS": true,
-    "targetPlatforms": ["emery", "basalt", "chalk", "diorite", "aplite"],
+    "targetPlatforms": ["emery", "basalt", "chalk", "diorite", "aplite", "flint"],
     "watchapp": {
       "watchface": false
     },

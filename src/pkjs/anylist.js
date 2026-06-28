@@ -184,7 +184,8 @@ function parseItem(bytes) {
       else if (f === 11) it.category = pb.utf8ToStr(v);
       else if (f === 13) it.categoryMatchId = pb.utf8ToStr(v);
       else if (f === 20) it.categoryAssignments.push(parseCategoryAssignment(v));
-      else if (f === 21) it.quantity = parseQuantity(v);
+      else if (f === 18) { var dq = pb.utf8ToStr(v); if (!it.quantity) it.quantity = dq; } // legacy quantity
+      else if (f === 21) it.quantity = parseQuantity(v); // preferred quantity (overrides legacy)
     } else if (wt === 0) {
       if (f === 6) it.checked = !!v;
       else if (f === 17) it.manualSortIndex = v;

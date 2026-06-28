@@ -69,7 +69,7 @@ function flattenItems(data) {
     for (var i = 0; i < list.length; i++) {
       var it = list[i];
       var label = it.name || '';
-      if (it.quantity) label += ' (' + it.quantity + ')';
+      if (it.quantity && it.quantity !== '1') label += ' (' + it.quantity + ')';
       items.push({ id: it.id, name: truncate(label, MAX_NAME), cat: truncate(catName, MAX_CAT), checked: it.checked ? 1 : 0 });
     }
   }
@@ -77,8 +77,10 @@ function flattenItems(data) {
 
 // Send the current `items` to the watch. `focus` (optional) is the global item
 // index to select; -1 = the Delete button; omitted = default (top).
-function sendList(focus) {
-  enqueue({ cmd: CMD_LIST_START, count: items.length, list: truncate(listTitle, MAX_CAT) });
+// `showActions` controls whether the watch shows the Delete button (the chk
+// flag on LIST_START). `focus` (optional) is the global index to highlight.
+function sendList(focus, showActions) {
+  enqueue({ cmd: CMD_LIST_START, count: items.length, list: truncate(listTitle, MAX_CAT), chk: showActions === false ? 0 : 1 });
   for (var k = 0; k < items.length; k++) {
     enqueue({ cmd: CMD_ITEM, idx: k, name: items[k].name, cat: items[k].cat, chk: items[k].checked });
   }
@@ -88,13 +90,22 @@ function sendList(focus) {
 }
 
 // Where the highlight should land after a toggle's refresh.
-function computeFocus(wasChecked, toggledId) {
+function computeFocus(wasChecked, toggledId, oldIdx, actionsShown) {
   var pos = -1;
   for (var i = 0; i < items.length; i++) { if (items[i].id === toggledId) { pos = i; break; } }
-  if (pos < 0) return undefined;            // not found -> default top
-  if (!wasChecked) return pos;              // unchecked -> stay on it
-  for (var j = pos + 1; j < items.length; j++) { if (!items[j].checked) return j; } // next unchecked
-  return -1;                                // none left -> Delete button
+  if (pos >= 0) {
+    if (!wasChecked) return pos;            // unchecked -> stay on it
+    for (var j = pos + 1; j < items.length; j++) { if (!items[j].checked) return j; } // next unchecked
+    if (actionsShown) return -1;            // none left -> Delete button
+    return items.length ? items.length - 1 : undefined;
+  }
+  // Toggled item is gone (checked while "hide checked" is on): focus whatever
+  // shifted into its place (the next item), clamped to the list.
+  if (items.length === 0) return undefined;
+  var t = oldIdx;
+  if (t >= items.length) t = items.length - 1;
+  if (t < 0) t = 0;
+  return t;
 }
 
 function ensureClient() {
@@ -108,10 +119,11 @@ function loadAndSend() {
   var s = getSettings();
   var c = ensureClient();
   if (!c) { sendError('Open app settings to add login'); return; }
-  c.getCategorizedList(s.anylist_list || '', true, function (err, data) {
+  var hide = !!s.hide_checked;
+  c.getCategorizedList(s.anylist_list || '', !hide, function (err, data) {
     if (err) { sendError(err); return; }
     flattenItems(data);
-    sendList(); // default focus (top)
+    sendList(undefined, !hide); // default focus (top); Delete button hidden if hiding checked
   });
 }
 
@@ -120,14 +132,16 @@ function toggle(idx, checked) {
   var c = ensureClient();
   if (!c) { sendError('Open app settings to add login'); return; }
   var s = getSettings();
+  var hide = !!s.hide_checked;
   var toggledId = items[idx].id;
+  var oldIdx = idx;
   c.checkItem(toggledId, checked, function (err) {
     if (err) { sendError(err); return; }
     // Re-fetch the list from AnyList, then send it with the right focus.
-    c.getCategorizedList(s.anylist_list || '', true, function (err2, data) {
+    c.getCategorizedList(s.anylist_list || '', !hide, function (err2, data) {
       if (err2) { sendError(err2); return; }
       flattenItems(data);
-      sendList(computeFocus(checked, toggledId));
+      sendList(computeFocus(checked, toggledId, oldIdx, !hide), !hide);
     });
   });
 }

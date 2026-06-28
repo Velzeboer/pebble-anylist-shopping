@@ -31,6 +31,12 @@
         "messageKey": "anylist_list",
         "label": "List name",
         "description": "Leave blank to use your first list."
+      },
+      {
+        "type": "toggle",
+        "messageKey": "hide_checked",
+        "label": "Hide checked off items from the list",
+        "defaultValue": false
       }
     ]
   },

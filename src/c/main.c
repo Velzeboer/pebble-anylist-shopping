@@ -40,6 +40,7 @@ static uint16_t s_sec_count[MAX_SECTIONS];
 static int s_sec_total = 0;
 
 static bool s_ready = false;
+static bool s_show_actions = true;   // whether to show the Delete button
 static char s_title[CAT_LEN] = "Shopping";
 
 // ---------------------------------------------------------------------------
@@ -276,7 +277,7 @@ static void marquee_eval(MenuIndex idx) {
 // A trailing "Actions" section (with the Delete-checked button) is shown
 // whenever there are items. Its index is s_sec_total.
 static bool has_actions(void) {
-  return s_item_count > 0;
+  return s_show_actions && s_item_count > 0;
 }
 
 static uint16_t menu_num_sections(MenuLayer *ml, void *ctx) {
@@ -422,6 +423,8 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
         strncpy(s_title, list_t->value->cstring, CAT_LEN - 1);
         s_title[CAT_LEN - 1] = '\0';
       }
+      Tuple *act_t = dict_find(iter, MESSAGE_KEY_chk); // chk on LIST_START = show Delete button
+      s_show_actions = act_t ? (act_t->value->int32 != 0) : true;
       if (s_build_expected > 0) {
         s_build = (ShopItem *)malloc(sizeof(ShopItem) * s_build_expected);
         if (!s_build) {

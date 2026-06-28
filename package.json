@@ -1,12 +1,10 @@
 {
   "name": "anylist-shopping",
   "author": "Marshal",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "keywords": ["pebble-app"],
   "private": true,
-  "dependencies": {
-    "pebble-clay": "^1.0.4"
-  },
+  "dependencies": {},
   "pebble": {
     "displayName": "AnyList Shopping",
     "uuid": "36df6cff-5257-4168-8517-741254f3e9b4",

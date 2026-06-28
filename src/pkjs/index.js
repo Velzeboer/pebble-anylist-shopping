@@ -3,7 +3,11 @@
  * no proxy server. Credentials come from the Clay settings page.
  */
 
-var Clay = require('pebble-clay');
+// Clay is vendored locally (src/pkjs/clay.js) instead of using the pebble-clay
+// npm package, because that package doesn't declare support for the flint
+// (Pebble 2 Duo) platform and blocks the build. The vendored runtime is
+// platform-agnostic (it runs in PebbleKit JS on the phone).
+var Clay = require('./clay');
 // Config is defined inline (not in a separate config.json) so the cloud build
 // can't serve a stale copy of it.
 var clayConfig = [

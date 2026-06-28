@@ -4,7 +4,29 @@
  */
 
 var Clay = require('pebble-clay');
-var clayConfig = require('./config.json');
+// Config is defined inline (not in a separate config.json) so the cloud build
+// can't serve a stale copy of it.
+var clayConfig = [
+  { type: 'heading', defaultValue: 'AnyList Shopping' },
+  { type: 'text', defaultValue: 'Enter your AnyList login. It is stored only on this phone and sent directly to AnyList over HTTPS.' },
+  {
+    type: 'section',
+    items: [
+      { type: 'heading', defaultValue: 'Account' },
+      { type: 'input', messageKey: 'anylist_email', label: 'AnyList email', attributes: { type: 'email', autocorrect: 'off', autocapitalize: 'none' } },
+      { type: 'input', messageKey: 'anylist_password', label: 'AnyList password', attributes: { type: 'password' } }
+    ]
+  },
+  {
+    type: 'section',
+    items: [
+      { type: 'heading', defaultValue: 'List' },
+      { type: 'input', messageKey: 'anylist_list', label: 'List name', description: 'Leave blank to use your first list.' },
+      { type: 'toggle', messageKey: 'hide_checked', label: 'Hide checked off items from the list', defaultValue: false }
+    ]
+  },
+  { type: 'submit', defaultValue: 'Save' }
+];
 var clay = new Clay(clayConfig);
 
 var AnyListClient = require('./anylist');

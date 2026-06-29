@@ -157,12 +157,35 @@ AnyListClient.prototype._dataPost = function (path, body, contentType, cb, _retr
 // ---------------------------------------------------------------------------
 // Parsing (field numbers come from AnyList's protobuf definitions)
 // ---------------------------------------------------------------------------
+// PBItemQuantity { amount=1, unit=2, rawQuantity=3 }. "400 g" is stored as
+// amount="400", unit="g" (and usually rawQuantity="400 g"), so combine them.
 function parseQuantity(bytes) {
-  var amount = '';
+  var amount = '', unit = '', raw = '';
   pb.eachField(bytes, function (f, v, wt) {
-    if (f === 1 && wt === 2) amount = pb.utf8ToStr(v); // amount
+    if (wt !== 2) return;
+    if (f === 1) amount = pb.utf8ToStr(v);
+    else if (f === 2) unit = pb.utf8ToStr(v);
+    else if (f === 3) raw = pb.utf8ToStr(v);
   });
-  return amount;
+  if (raw) return raw;
+  if (amount && unit) return amount + ' ' + unit;
+  return amount || unit || '';
+}
+
+// Quantity carried by a recipe ingredient: PBItemIngredient { ingredient=1
+// (PBIngredient { quantity=3 }), quantityPb=6 (PBItemQuantity) }.
+function parseIngredientQuantity(bytes) {
+  var fromPb = '', fromIng = '';
+  pb.eachField(bytes, function (f, v, wt) {
+    if (wt !== 2) return;
+    if (f === 6) fromPb = parseQuantity(v);
+    else if (f === 1) {
+      pb.eachField(v, function (ff, vv, ww) {
+        if (ff === 3 && ww === 2) fromIng = pb.utf8ToStr(vv); // PBIngredient.quantity
+      });
+    }
+  });
+  return fromPb || fromIng || '';
 }
 
 function parseCategoryAssignment(bytes) {
@@ -176,7 +199,7 @@ function parseCategoryAssignment(bytes) {
 }
 
 function parseItem(bytes) {
-  var it = { identifier: '', name: '', checked: false, category: '', categoryMatchId: '', manualSortIndex: 0, quantity: '', categoryAssignments: [] };
+  var it = { identifier: '', name: '', checked: false, category: '', categoryMatchId: '', manualSortIndex: 0, quantity: '', ingredientQuantity: '', categoryAssignments: [] };
   pb.eachField(bytes, function (f, v, wt) {
     if (wt === 2) {
       if (f === 1) it.identifier = pb.utf8ToStr(v);
@@ -186,11 +209,15 @@ function parseItem(bytes) {
       else if (f === 20) it.categoryAssignments.push(parseCategoryAssignment(v));
       else if (f === 18) { var dq = pb.utf8ToStr(v); if (!it.quantity) it.quantity = dq; } // legacy quantity
       else if (f === 21) it.quantity = parseQuantity(v); // preferred quantity (overrides legacy)
+      else if (f === 27) { if (!it.ingredientQuantity) { var iq = parseIngredientQuantity(v); if (iq) it.ingredientQuantity = iq; } } // recipe ingredient
     } else if (wt === 0) {
       if (f === 6) it.checked = !!v;
       else if (f === 17) it.manualSortIndex = v;
     }
   });
+  // Items added from a recipe carry their quantity on the ingredient, not on
+  // the item itself; fall back to it when the item has no quantity of its own.
+  if (!it.quantity && it.ingredientQuantity) it.quantity = it.ingredientQuantity;
   return it;
 }
 

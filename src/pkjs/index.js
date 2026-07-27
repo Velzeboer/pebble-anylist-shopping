@@ -26,7 +26,8 @@ var clayConfig = [
     items: [
       { type: 'heading', defaultValue: 'List' },
       { type: 'input', messageKey: 'anylist_list', label: 'List name', description: 'Leave blank to use your first list.' },
-      { type: 'toggle', messageKey: 'hide_checked', label: 'Hide checked off items from the list', defaultValue: false }
+      { type: 'toggle', messageKey: 'hide_checked', label: 'Hide checked off items from the list', defaultValue: false },
+      { type: 'toggle', messageKey: 'close_after_delete', label: 'Close after Delete Checked Items', defaultValue: false }
     ]
   },
   { type: 'submit', defaultValue: 'Save' }
@@ -41,6 +42,7 @@ var CMD_ITEM = 2;
 var CMD_LIST_END = 3;
 var CMD_ERROR = 4;
 var CMD_TOGGLE_OK = 5;
+var CMD_CLOSE = 6;           // phone -> watch (exit the app)
 var CMD_REFRESH = 10;        // watch -> phone
 var CMD_TOGGLE = 11;         // watch -> phone
 var CMD_DELETE_CHECKED = 12; // watch -> phone
@@ -176,9 +178,11 @@ function deleteChecked() {
   var s = getSettings();
   var c = ensureClient();
   if (!c) { sendError('Open app settings to add login'); return; }
+  var closeAfter = !!s.close_after_delete;
   c.removeCheckedItems(s.anylist_list || '', function (err) {
     if (err) { sendError(err); return; }
-    loadAndSend(); // refresh the list after removal
+    if (closeAfter) enqueue({ cmd: CMD_CLOSE }); // items are deleted -> close the app
+    else loadAndSend(); // refresh the list after removal
   });
 }
 

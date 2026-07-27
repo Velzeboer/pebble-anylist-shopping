@@ -6,6 +6,7 @@
 #define CMD_LIST_END   3
 #define CMD_ERROR      4
 #define CMD_TOGGLE_OK  5
+#define CMD_CLOSE      6   // phone -> watch: exit the app
 #define CMD_REFRESH    10  // watch -> phone
 #define CMD_TOGGLE     11  // watch -> phone
 #define CMD_DELETE_CHECKED 12  // watch -> phone
@@ -498,6 +499,12 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
         // First item, not top-aligned, so the first category header stays visible.
         menu_layer_set_selected_index(s_menu_layer, (MenuIndex){0, 0}, MenuRowAlignNone, false);
       }
+      break;
+    }
+
+    case CMD_CLOSE: {
+      // "Close after Delete Checked Items" is on and the delete succeeded.
+      window_stack_pop_all(true);
       break;
     }
 
